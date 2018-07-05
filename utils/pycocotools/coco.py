@@ -224,6 +224,8 @@ class COCO:
             return [self.imgs[id] for id in ids]
         elif type(ids) == int:
             return [self.imgs[ids]]
+        elif isinstance(ids,str):
+            return [self.imgs[ids]]
 
     def showAnns(self, anns):
         """

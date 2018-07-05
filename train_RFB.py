@@ -11,7 +11,7 @@ import argparse
 import numpy as np
 from torch.autograd import Variable
 import torch.utils.data as data
-from data import VOCroot, COCOroot, VOC_300, VOC_512, COCO_300, COCO_512, COCO_mobile_300, AnnotationTransform, COCODetection, VOCDetection, detection_collate, BaseTransform, preproc
+from data import VOCroot, COCOroot, VOC_300, VOC_512, COCO_300, COCO_512, COCO_mobile_300, AnnotationTransform, COCODetection, VOCDetection, DummyDetection, detection_collate, BaseTransform, preproc
 from layers.modules import MultiBoxLoss
 from layers.functions import PriorBox
 import time
@@ -24,7 +24,7 @@ parser.add_argument('-v', '--version', default='RFB_vgg',
 parser.add_argument('-s', '--size', default='300',
                     help='300 or 512 input size.')
 parser.add_argument('-d', '--dataset', default='VOC',
-                    help='VOC or COCO dataset')
+                    help='VOC or COCO or dummy name')
 parser.add_argument(
     '--basenet', default='./weights/vgg16_reducedfc.pth', help='pretrained base model')
 parser.add_argument('--jaccard_threshold', default=0.5,
@@ -53,6 +53,8 @@ parser.add_argument('--log_iters', default=True,
                     type=bool, help='Print the loss at each iteration')
 parser.add_argument('--save_folder', default='./weights/',
                     help='Location to save checkpoint models')
+parser.add_argument('--root_path', default='./data/dataset',
+                    help='Location of dataset')
 args = parser.parse_args()
 
 
@@ -62,9 +64,19 @@ if not os.path.exists(args.save_folder):
 if args.dataset == 'VOC':
     train_sets = [('2007', 'trainval'), ('2012', 'trainval')]
     cfg = (VOC_300, VOC_512)[args.size == '512']
-else:
+    num_classes = 21
+elif args.dataset == 'COCO':
     train_sets = [('2014', 'train'),('2014', 'valminusminival')]
     cfg = (COCO_300, COCO_512)[args.size == '512']
+    num_classes = 81
+# ---- customized dateset ----
+elif args.dataset == 'juggdet':
+    train_sets = [('juggdet_0503', 'train')]
+    cfg = (COCO_300, COCO_512)[args.size == '512']
+    num_classes = 10
+# ----------------------------
+else:
+    print('Unknown dataset!')
 
 if args.version == 'RFB_vgg':
     from models.RFB_Net_vgg import build_net
@@ -79,7 +91,7 @@ else:
 img_dim = (300,512)[args.size=='512']
 rgb_means = ((104, 117, 123),(103.94,116.78,123.68))[args.version == 'RFB_mobile']
 p = (0.6,0.2)[args.version == 'RFB_mobile']
-num_classes = (21, 81)[args.dataset == 'COCO']
+# num_classes = (21, 81)[args.dataset == 'COCO']
 batch_size = args.batch_size
 weight_decay = 0.0005
 gamma = 0.1
@@ -105,8 +117,8 @@ if args.resume_net == None:
             elif key.split('.')[-1] == 'bias':
                 m.state_dict()[key][...] = 0
 
+    # initialize newly added layers' weights with kaiming_normal method
     print('Initializing weights...')
-# initialize newly added layers' weights with kaiming_normal method
     net.extras.apply(weights_init)
     net.loc.apply(weights_init)
     net.conf.apply(weights_init)
@@ -163,6 +175,11 @@ def train():
     elif args.dataset == 'COCO':
         dataset = COCODetection(COCOroot, train_sets, preproc(
             img_dim, rgb_means, p))
+    # ---- customized dateset ----
+    elif args.dataset == 'juggdet':
+        dataset = DummyDetection(args.root_path, train_sets, preproc(
+            img_dim, rgb_means, p), dataset_name='juggdet')
+    # ----------------------------
     else:
         print('Only VOC and COCO are supported now!')
         return

@@ -1,0 +1,6 @@
+*.pyc
+*.so
+data/dataset
+utils/build
+weights
+
