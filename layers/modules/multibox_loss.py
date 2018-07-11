@@ -111,7 +111,10 @@ class MultiBoxLoss(nn.Module):
 
         # Sum of losses: L(x,c,l,g) = (Lconf(x, c) + αLloc(x,l,g)) / N
 
-        N = num_pos.data.sum()
+        _N = num_pos.data.sum()
+        N = _N.new_tensor(_N.data, dtype=loss_l.dtype)
+        # print('loss_l.dtype:',loss_l.dtype)
+        # print('N.dtype:',N.dtype)
         loss_l/=N
         loss_c/=N
         return loss_l,loss_c

@@ -102,21 +102,21 @@ class DummyDetection(data.Dataset):
             self.coco_name = coco_name
             cats = _COCO.loadCats(_COCO.getCatIds())
             self._classes = tuple(['__background__'] + [c['name'] for c in cats])
-            print('_classes',self._classes)
+            print('=> Classes:',self._classes[1:])
             self.num_classes = len(self._classes)
             self._class_to_ind = dict(zip(self._classes, range(self.num_classes)))
             self._class_to_coco_cat_id = dict(zip([c['name'] for c in cats],
                                                   _COCO.getCatIds()))
             indexes = _COCO.getImgIds()
             self.image_indexes = indexes
-            print('indexes[0]',indexes[0])
+            # print('indexes[0]',indexes[0])
             self.ids.extend([self.image_path_from_index(coco_name, index) for index in indexes ])
-            print('len(ids)',len(self.ids))
+            # print('len(ids)',len(self.ids))
             if image_set.find('test') != -1:
                 print('test set will not load annotations!')
             else:
                 self.annotations.extend(self._load_coco_annotations(coco_name, indexes,_COCO))
-            print('len(annotations)',len(self.annotations))
+            # print('len(annotations)',len(self.annotations))
 
 
     def image_path_from_index(self, name, index):
@@ -134,8 +134,8 @@ class DummyDetection(data.Dataset):
 
 
     def _get_ann_file(self, name):
-        print('name:',name)
-        print(self._path_map[name]['_ANN_FN'])
+        # print('name:',name)
+        # print(self._path_map[name]['_ANN_FN'])
         return self._path_map[name]['_ANN_FN']
 
 
@@ -144,14 +144,14 @@ class DummyDetection(data.Dataset):
         if os.path.exists(cache_file):
             with open(cache_file, 'rb') as fid:
                 roidb = pickle.load(fid)
-            print('{} gt roidb loaded from {}'.format(coco_name,cache_file))
+            print('=> {} gt roidb loaded from {}'.format(coco_name,cache_file))
             return roidb
 
         gt_roidb = [self._annotation_from_index(index, _COCO)
                     for index in indexes]
         with open(cache_file, 'wb') as fid:
             pickle.dump(gt_roidb,fid,pickle.HIGHEST_PROTOCOL)
-        print('wrote gt roidb to {}'.format(cache_file))
+        print('=> wrote gt roidb to {}'.format(cache_file))
         return gt_roidb
 
 

@@ -1,3 +1,10 @@
+#!bin/bash/env python3
+# -*- coding: utf-8 -*-
+# 
+# Modified to be compatable with pytorch_v0.5.0 x python_v3.5.2
+# Northrend@github.com
+# 
+
 from __future__ import print_function
 import sys
 import os
@@ -51,10 +58,17 @@ parser.add_argument('--gamma', default=0.1,
                     type=float, help='Gamma update for SGD')
 parser.add_argument('--log_iters', default=True,
                     type=bool, help='Print the loss at each iteration')
+parser.add_argument('--log_interval', default=10,
+                    type=int, help='Logging interval of iters')
 parser.add_argument('--save_folder', default='./weights/',
                     help='Location to save checkpoint models')
+parser.add_argument('--save_interval', default=10,
+                    type=int, help='Save interval of epochs')
 parser.add_argument('--root_path', default='./data/dataset',
                     help='Location of dataset')
+parser.add_argument('--step_epoch', default='90,120,140',
+                    type=str, help='Step value of epochs')
+
 args = parser.parse_args()
 
 
@@ -101,7 +115,7 @@ net = build_net('train', img_dim, num_classes)
 print(net)
 if args.resume_net == None:
     base_weights = torch.load(args.basenet)
-    print('Loading base network...')
+    print('=> Loading base network...')
     net.base.load_state_dict(base_weights)
 
     def xavier(param):
@@ -111,14 +125,14 @@ if args.resume_net == None:
         for key in m.state_dict():
             if key.split('.')[-1] == 'weight':
                 if 'conv' in key:
-                    init.kaiming_normal(m.state_dict()[key], mode='fan_out')
+                    init.kaiming_normal_(m.state_dict()[key], mode='fan_out')
                 if 'bn' in key:
                     m.state_dict()[key][...] = 1
             elif key.split('.')[-1] == 'bias':
                 m.state_dict()[key][...] = 0
 
     # initialize newly added layers' weights with kaiming_normal method
-    print('Initializing weights...')
+    print('=> Initializing weights...')
     net.extras.apply(weights_init)
     net.loc.apply(weights_init)
     net.conf.apply(weights_init)
@@ -129,7 +143,7 @@ if args.resume_net == None:
 
 else:
 # load resume network
-    print('Loading resume network...')
+    print('=> Loading resume network...')
     state_dict = torch.load(args.resume_net)
     # create new OrderedDict that does not contain `module.`
     from collections import OrderedDict
@@ -158,7 +172,9 @@ optimizer = optim.SGD(net.parameters(), lr=args.lr,
 
 criterion = MultiBoxLoss(num_classes, 0.5, True, 0, True, 3, 0.5, False)
 priorbox = PriorBox(cfg)
-priors = Variable(priorbox.forward(), volatile=True)
+# priors = Variable(priorbox.forward(), volatile=True)
+with torch.no_grad():
+    priors = Variable(priorbox.forward())
 
 
 def train():
@@ -167,7 +183,7 @@ def train():
     loc_loss = 0  # epoch
     conf_loss = 0
     epoch = 0 + args.resume_epoch
-    print('Loading Dataset...')
+    print('=> Loading Dataset...')
 
     if args.dataset == 'VOC':
         dataset = VOCDetection(VOCroot, train_sets, preproc(
@@ -190,7 +206,19 @@ def train():
     stepvalues_VOC = (150 * epoch_size, 200 * epoch_size, 250 * epoch_size)
     stepvalues_COCO = (90 * epoch_size, 120 * epoch_size, 140 * epoch_size)
     stepvalues = (stepvalues_VOC,stepvalues_COCO)[args.dataset=='COCO']
-    print('Training',args.version, 'on', dataset.name)
+    if args.dataset == 'VOC':
+        stepvalues = (150 * epoch_size, 200 * epoch_size, 250 * epoch_size)
+    elif args.dataset == 'COCO':
+        stepvalues = (90 * epoch_size, 120 * epoch_size, 140 * epoch_size)
+    # ---- customized dateset ----
+    elif args.dataset == 'juggdet':
+        steps = [int(x) for x in args.step_epoch.split(',')]
+        assert len(steps) == 3, 'step_epoch must be 3 values'
+        stepvalues = ( steps[0] * epoch_size, steps[1] * epoch_size, steps[2] * epoch_size)
+        print('=> LR steps:', stepvalues)
+    # ----------------------------
+
+    print('=> Training',args.version, 'on', dataset.name)
     step_index = 0
 
     if args.resume_epoch > 0:
@@ -206,7 +234,8 @@ def train():
                                                   shuffle=True, num_workers=args.num_workers, collate_fn=detection_collate))
             loc_loss = 0
             conf_loss = 0
-            if (epoch % 10 == 0 and epoch > 0) or (epoch % 5 ==0 and epoch > 200):
+            # if (epoch % 10 == 0 and epoch > 0) or (epoch % 5 ==0 and epoch > 200):
+            if epoch % args.save_interval == 0 and epoch > 0:
                 torch.save(net.state_dict(), args.save_folder+args.version+'_'+args.dataset + '_epoches_'+
                            repr(epoch) + '.pth')
             epoch += 1
@@ -224,10 +253,12 @@ def train():
 
         if args.cuda:
             images = Variable(images.cuda())
-            targets = [Variable(anno.cuda(),volatile=True) for anno in targets]
+            # targets = [Variable(anno.cuda(),volatile=True) for anno in targets]
+            targets = [Variable(anno.cuda(),requires_grad=False) for anno in targets]
         else:
             images = Variable(images)
-            targets = [Variable(anno, volatile=True) for anno in targets]
+            # targets = [Variable(anno, volatile=True) for anno in targets]
+            targets = [Variable(anno, requires_grad=False) for anno in targets]
         # forward
         t0 = time.time()
         out = net(images)
@@ -238,16 +269,24 @@ def train():
         loss.backward()
         optimizer.step()
         t1 = time.time()
-        loc_loss += loss_l.data[0]
-        conf_loss += loss_c.data[0]
+        # loc_loss += loss_l.data[0]
+        # conf_loss += loss_c.data[0]
+        loc_loss += loss_l.item()   # fix warnings for 0-dim tensor in pytorch 0.5.0
+        conf_loss += loss_c.item()
         load_t1 = time.time()
-        if iteration % 10 == 0:
-            print('Epoch:' + repr(epoch) + ' || epochiter: ' + repr(iteration % epoch_size) + '/' + repr(epoch_size)
-                  + '|| Totel iter ' +
-                  repr(iteration) + ' || L: %.4f C: %.4f||' % (
-                loss_l.data[0],loss_c.data[0]) + 
-                'Batch time: %.4f sec. ||' % (load_t1 - load_t0) + 'LR: %.8f' % (lr))
-
+        if iteration % args.log_interval == 0:
+            # print('Epoch:' + repr(epoch) + ' || epochiter: ' + repr(iteration % epoch_size) + '/' + repr(epoch_size)
+            #       + '|| Totel iter ' +
+            #       repr(iteration) + ' || L: %.4f C: %.4f||' % (
+            #     loss_l.data[0],loss_c.data[0]) + 
+            #     'Batch time: %.4f sec. ||' % (load_t1 - load_t0) + 'LR: %.8f' % (lr))
+            print('{:<12}| {:<24}| {:<20}| {:<24}| {:<16}| {:<20}'.format(
+                        'Epoch [{}]'.format(epoch),
+                        'Epoch iter: {}/{}'.format(iteration%epoch_size, epoch_size),
+                        'total iter: {}'.format(iteration),
+                        'L: {:.4f} C: {:.4f}'.format(loss_l.item(), loss_c.item()),
+                        'LR: {:.8f}'.format(lr),
+                        'Batch time: {:.4f}'.format(load_t1-load_t0)))
     torch.save(net.state_dict(), args.save_folder +
                'Final_' + args.version +'_' + args.dataset+ '.pth')
 
@@ -257,7 +296,7 @@ def adjust_learning_rate(optimizer, gamma, epoch, step_index, iteration, epoch_s
     # Adapted from PyTorch Imagenet example:
     # https://github.com/pytorch/examples/blob/master/imagenet/main.py
     """
-    if epoch < 6:
+    if epoch < 6:   # warmup
         lr = 1e-6 + (args.lr-1e-6) * iteration / (epoch_size * 5) 
     else:
         lr = args.lr * (gamma ** (step_index))
