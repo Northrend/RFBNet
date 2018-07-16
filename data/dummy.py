@@ -87,7 +87,11 @@ class DummyDetection(data.Dataset):
         self._path_map = {
             'juggdet_0503_train': {
                 '_IM_DIR': root+'/juggdet_0503/Image/',
-                '_ANN_FN': root+'/juggdet_0503/Annotations/juggdet_0503_train_0612.json'   
+                '_ANN_FN': root+'/juggdet_0503/Annotations/juggdet_0503_train_0612.json'
+            },
+            'juggdet_0503_test': {
+                '_IM_DIR': root+'/juggdet_0503/Image/',
+                '_ANN_FN': root+'/juggdet_0503/Annotations/juggdet_0503_test_0711.json'
             }
         }
 
@@ -112,10 +116,13 @@ class DummyDetection(data.Dataset):
             # print('indexes[0]',indexes[0])
             self.ids.extend([self.image_path_from_index(coco_name, index) for index in indexes ])
             # print('len(ids)',len(self.ids))
-            if image_set.find('test') != -1:
-                print('test set will not load annotations!')
-            else:
-                self.annotations.extend(self._load_coco_annotations(coco_name, indexes,_COCO))
+
+            # if image_set.find('test') != -1:
+            #     print('test set will not load annotations!')
+            # else:
+            #     self.annotations.extend(self._load_coco_annotations(coco_name, indexes,_COCO))
+            self.annotations.extend(self._load_coco_annotations(coco_name, indexes,_COCO))
+
             # print('len(annotations)',len(self.annotations))
 
 
@@ -343,8 +350,9 @@ class DummyDetection(data.Dataset):
                                          '_results'))
         res_file += '.json'
         self._write_coco_results_file(all_boxes, res_file)
+        self._do_detection_eval(res_file, output_dir)
         # Only do evaluation on non-test sets
-        if self.coco_name.find('test') == -1:
-            self._do_detection_eval(res_file, output_dir)
+        # if self.coco_name.find('test') == -1:
+        #     self._do_detection_eval(res_file, output_dir)
         # Optionally cleanup results json file
 

@@ -1,6 +1,7 @@
 from __future__ import print_function
 import sys
 import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 import pickle
 import argparse
 import torch
@@ -10,7 +11,7 @@ import torchvision.transforms as transforms
 import numpy as np
 from torch.autograd import Variable
 from data import VOCroot,COCOroot 
-from data import AnnotationTransform, COCODetection, VOCDetection, BaseTransform, VOC_300,VOC_512,COCO_300,COCO_512, COCO_mobile_300
+from data import AnnotationTransform, COCODetection, VOCDetection, DummyDetection, BaseTransform, VOC_300,VOC_512,COCO_300,COCO_512, COCO_mobile_300
 
 import torch.utils.data as data
 from layers.functions import Detect,PriorBox
@@ -30,9 +31,11 @@ parser.add_argument('-m', '--trained_model', default='weights/RFB300_80_5.pth',
 parser.add_argument('--save_folder', default='eval/', type=str,
                     help='Dir to save results')
 parser.add_argument('--cuda', default=True, type=bool,
-                    help='Use cuda to train model')
+                    help='Use cuda to test model')
 parser.add_argument('--retest', default=False, type=bool,
                     help='test cache results')
+parser.add_argument('--root_path', default='./data/dataset',
+                    help='Location of dataset')
 args = parser.parse_args()
 
 if not os.path.exists(args.save_folder):
@@ -40,8 +43,15 @@ if not os.path.exists(args.save_folder):
 
 if args.dataset == 'VOC':
     cfg = (VOC_300, VOC_512)[args.size == '512']
-else:
+    num_classes = 21
+elif args.dataset == 'COCO':
     cfg = (COCO_300, COCO_512)[args.size == '512']
+    num_classes = 81
+elif args.dataset == 'juggdet':
+    cfg = (COCO_300, COCO_512)[args.size == '512']
+    num_classes = 10 
+else:
+    print('Unknown dataset!')
 
 if args.version == 'RFB_vgg':
     from models.RFB_Net_vgg import build_net
@@ -58,14 +68,12 @@ priors = Variable(priorbox.forward(), volatile=True)
 if not args.cuda:
     priors = priors.cpu()
 
-
 def test_net(save_folder, net, detector, cuda, testset, transform, max_per_image=300, thresh=0.005):
 
     if not os.path.exists(save_folder):
         os.mkdir(save_folder)
     # dump predictions and assoc. ground truth to text file for now
     num_images = len(testset)
-    num_classes = (21, 81)[args.dataset == 'COCO']
     all_boxes = [[[] for _ in range(num_images)]
                  for _ in range(num_classes)]
 
@@ -146,7 +154,7 @@ def test_net(save_folder, net, detector, cuda, testset, transform, max_per_image
 if __name__ == '__main__':
     # load net
     img_dim = (300,512)[args.size=='512']
-    num_classes = (21, 81)[args.dataset == 'COCO']
+    # num_classes = (21, 81)[args.dataset == 'COCO']
     net = build_net('test', img_dim, num_classes)    # initialize detector
     state_dict = torch.load(args.trained_model)
     # create new OrderedDict that does not contain `module.`
@@ -172,6 +180,8 @@ if __name__ == '__main__':
         testset = COCODetection(
             COCOroot, [('2014', 'minival')], None)
             #COCOroot, [('2015', 'test-dev')], None)
+    elif args.dataset == 'juggdet':
+        testset = DummyDetection(args.root_path, [('juggdet_0503', 'test')], None, dataset_name='juggdet')
     else:
         print('Only VOC and COCO dataset are supported now!')
     if args.cuda:
