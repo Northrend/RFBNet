@@ -1,15 +1,16 @@
 from __future__ import print_function
 import sys
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "7"
 import pickle
+import json
 import argparse
 import torch
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 import numpy as np
-import time
+import cv2
+import pprint
 from torch.autograd import Variable
 from data import VOCroot,COCOroot 
 from data import AnnotationTransform, COCODetection, VOCDetection, DummyDetection, BaseTransform, VOC_300,VOC_512,COCO_300,COCO_512, COCO_mobile_300
@@ -35,8 +36,12 @@ parser.add_argument('--cuda', default=True, type=bool,
                     help='Use cuda to test model')
 parser.add_argument('--retest', default=False, type=bool,
                     help='test cache results')
-parser.add_argument('--root_path', default='./data/dataset',
-                    help='Location of dataset')
+parser.add_argument('--test_set', default='', type=str,
+                    help='Location of testset')
+parser.add_argument('--test_prefix', default='', type=str,
+                    help='Prefix of testset')
+parser.add_argument('--thresh', default=0.7, type=float,
+                    help='Threshold')
 args = parser.parse_args()
 
 if not os.path.exists(args.save_folder):
@@ -69,28 +74,32 @@ priors = Variable(priorbox.forward(), volatile=True)
 if not args.cuda:
     priors = priors.cpu()
 
-def test_net(save_folder, net, detector, cuda, testset, transform, max_per_image=300, thresh=0.005):
+def infer_net(save_file, net, detector, cuda, testset, transform, max_per_image=300, thresh=0.005):
 
-    if not os.path.exists(save_folder):
-        os.mkdir(save_folder)
+    if not os.path.exists(os.path.dirname(save_file)):
+        os.mkdir(os.path.dirname(save_file))
     # dump predictions and assoc. ground truth to text file for now
     num_images = len(testset)
     all_boxes = [[[] for _ in range(num_images)]
                  for _ in range(num_classes)]
+    result = dict()
 
     _t = {'im_detect': Timer(), 'misc': Timer()}
-    det_file = os.path.join(save_folder, 'detections.pkl')
 
-    if args.retest:
-        f = open(det_file,'rb')
-        all_boxes = pickle.load(f)
-        print('Evaluating detections')
-        testset.evaluate_detections(all_boxes, save_folder)
-        return
-
+    # if args.retest:
+    #     f = open(det_file,'rb')
+    #     all_boxes = pickle.load(f)
+    #     print('Evaluating detections')
+    #     testset.evaluate_detections(all_boxes, save_folder)
+    #     return
 
     for i in range(num_images):
-        img = testset.pull_image(i)
+        # img = testset.pull_image(i)
+        try:
+            img = cv2.imread(testset[i])
+        except:
+            print('Image error')
+            continue 
         x = Variable(transform(img).unsqueeze(0),volatile=True)
         if cuda:
             x = x.cuda()
@@ -100,7 +109,7 @@ def test_net(save_folder, net, detector, cuda, testset, transform, max_per_image
         boxes, scores = detector.forward(out,priors)
         detect_time = _t['im_detect'].toc()
         boxes = boxes[0]
-        scores=scores[0]
+        scores = scores[0]
 
         boxes = boxes.cpu().numpy()
         scores = scores.cpu().numpy()
@@ -111,8 +120,8 @@ def test_net(save_folder, net, detector, cuda, testset, transform, max_per_image
 
         _t['misc'].tic()
 
-        _temp_time = 0
         for j in range(1, num_classes):
+            print('=>',j)
             inds = np.where(scores[:, j] > thresh)[0]
             if len(inds) == 0:
                 all_boxes[j][i] = np.empty([0, 5], dtype=np.float32)
@@ -121,39 +130,48 @@ def test_net(save_folder, net, detector, cuda, testset, transform, max_per_image
             c_scores = scores[inds, j]
             c_dets = np.hstack((c_bboxes, c_scores[:, np.newaxis])).astype(
                 np.float32, copy=False)
+            print(c_dets)
+            print('--------')
+
             if args.dataset == 'VOC':
                 cpu = True
             else:
                 cpu = False
-                # cpu = True 
 
-            _temp_tic = time.time()
             keep = nms(c_dets, 0.45, force_cpu=cpu)
-            _temp_time += time.time() - _temp_tic
             keep = keep[:50]
             c_dets = c_dets[keep, :]
+            print(c_dets)
+            print('--------')
             all_boxes[j][i] = c_dets
+            print('=>',j,i,all_boxes[j][i])
         if max_per_image > 0:
             image_scores = np.hstack([all_boxes[j][i][:, -1] for j in range(1,num_classes)])
             if len(image_scores) > max_per_image:
+                print('FLAG')
                 image_thresh = np.sort(image_scores)[-max_per_image]
                 for j in range(1, num_classes):
                     keep = np.where(all_boxes[j][i][:, -1] >= image_thresh)[0]
                     all_boxes[j][i] = all_boxes[j][i][keep, :]
+                    # print('=>',j,i,all_boxes[j][i])
 
         nms_time = _t['misc'].toc()
 
-        if i % 1 == 0:
-            print('im_detect: {:d}/{:d} detect_time: {:.4f}s nms_time: {:.4f}s _temp_time: {:.4f}s'
-                .format(i + 1, num_images, detect_time, nms_time, _temp_time ))
+        if i % 20 == 0:
+            print('im_detect: {:d}/{:d} {:.3f}s {:.3f}s'
+                .format(i + 1, num_images, detect_time, nms_time))
             _t['im_detect'].clear()
             _t['misc'].clear()
 
-    with open(det_file, 'wb') as f:
-        pickle.dump(all_boxes, f, pickle.HIGHEST_PROTOCOL)
+        print('========')
+        pprint.pprint(all_boxes[1][i])
+        assert 0
 
-    print('Evaluating detections')
-    testset.evaluate_detections(all_boxes, save_folder)
+    # with open(det_file, 'wb') as f:
+    #     pickle.dump(all_boxes, f, pickle.HIGHEST_PROTOCOL)
+
+    # print('Evaluating detections')
+    # testset.evaluate_detections(all_boxes, save_folder)
 
 
 if __name__ == '__main__':
@@ -180,13 +198,14 @@ if __name__ == '__main__':
     # load data
     if args.dataset == 'VOC':
         testset = VOCDetection(
-            args.root_path, [('2007', 'test')], None, AnnotationTransform())
+            VOCroot, [('2007', 'test')], None, AnnotationTransform())
     elif args.dataset == 'COCO':
         testset = COCODetection(
-            args.root_path, [('2017', 'val')], None)
+            COCOroot, [('2014', 'minival')], None)
             #COCOroot, [('2015', 'test-dev')], None)
     elif args.dataset == 'juggdet':
-        testset = DummyDetection(args.root_path, [('juggdet_0503', 'test')], None, dataset_name='juggdet')
+        with open(args.test_set,'r') as f: 
+            testset = [os.path.join(args.test_prefix, x.strip()) for x in f.readlines()]
     else:
         print('Only VOC and COCO dataset are supported now!')
     if args.cuda:
@@ -200,7 +219,6 @@ if __name__ == '__main__':
     detector = Detect(num_classes,0,cfg)
     save_folder = os.path.join(args.save_folder,args.dataset)
     rgb_means = ((104, 117, 123),(103.94,116.78,123.68))[args.version == 'RFB_mobile']
-    test_net(save_folder, net, detector, args.cuda, testset,
+    infer_net(save_folder, net, detector, args.cuda, testset,
              BaseTransform(net.size, rgb_means, (2, 0, 1)),
-             # top_k, thresh=0.001)
-             top_k, thresh=0.7)
+             top_k, thresh=args.thresh)

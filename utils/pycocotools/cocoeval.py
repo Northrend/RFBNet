@@ -299,6 +299,7 @@ class COCOeval:
         a = np.array([d['area']<aRng[0] or d['area']>aRng[1] for d in dt]).reshape((1, len(dt)))
         dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.repeat(a,T,0)))
         # store results for given image and category
+
         return {
                 'image_id':     imgId,
                 'category_id':  catId,
@@ -404,6 +405,8 @@ class COCOeval:
                         except:
                             pass
                         precision[t,:,k,a,m] = np.array(q)
+        print('=> [T, R, K, A, M]:',[T, R, K, A, M])
+        print('=> precision, recall:', precision, recall)
         self.eval = {
             'params': p,
             'counts': [T, R, K, A, M],

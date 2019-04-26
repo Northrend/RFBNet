@@ -115,7 +115,8 @@ class DummyDetection(data.Dataset):
             self.image_indexes = indexes
             # print('indexes[0]',indexes[0])
             self.ids.extend([self.image_path_from_index(coco_name, index) for index in indexes ])
-            # print('len(ids)',len(self.ids))
+            print('len(ids)',len(self.ids))
+            print('==> ids[:10]:', self.ids[:10])
 
             # if image_set.find('test') != -1:
             #     print('test set will not load annotations!')
@@ -350,9 +351,9 @@ class DummyDetection(data.Dataset):
                                          '_results'))
         res_file += '.json'
         self._write_coco_results_file(all_boxes, res_file)
-        self._do_detection_eval(res_file, output_dir)
         # Only do evaluation on non-test sets
         # if self.coco_name.find('test') == -1:
         #     self._do_detection_eval(res_file, output_dir)
         # Optionally cleanup results json file
+        self._do_detection_eval(res_file, output_dir)
 

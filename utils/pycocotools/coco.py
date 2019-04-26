@@ -200,7 +200,8 @@ class COCO:
         """
         if type(ids) == list:
             return [self.anns[id] for id in ids]
-        elif type(ids) == int:
+        # elif type(ids) == int:
+        else:
             return [self.anns[ids]]
 
     def loadCats(self, ids=[]):
